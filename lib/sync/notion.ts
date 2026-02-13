@@ -4,7 +4,7 @@ import { getSyncState, saveSyncState } from "../db/sync-state";
 import { insertRecipe, updateRecipe, getAllRecipes } from "../db/recipes";
 import type { Recipe } from "../types";
 
-const API_BASE = "https://macronotion-production.up.railway.app";
+const API_BASE = "https://mealpreplogic-production.up.railway.app";
 
 /**
  * Get the Notion OAuth URL from the backend.

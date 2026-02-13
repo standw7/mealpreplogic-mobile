@@ -1,6 +1,6 @@
 import type { User } from "../types";
 
-const API_BASE = "https://macronotion-production.up.railway.app";
+const API_BASE = "https://mealpreplogic-production.up.railway.app";
 
 // ---------------------------------------------------------------------------
 // Helpers

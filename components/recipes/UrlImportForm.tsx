@@ -15,7 +15,7 @@ import { autoCategorize } from "../../lib/utils/categorizer";
 import { useIsOnline } from "../../lib/utils/network";
 import { Colors } from "../../constants/colors";
 
-const API_BASE = "https://macronotion-production.up.railway.app";
+const API_BASE = "https://mealpreplogic-production.up.railway.app";
 
 interface UrlImportFormProps {
   onImported: (recipe: Partial<Recipe>) => void;
