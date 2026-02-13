@@ -1,14 +1,13 @@
 /**
- * Meal plan constraint solver using glpk.js (GLPK compiled to WASM).
+ * Meal plan constraint solver using javascript-lp-solver (pure JS).
  *
- * This is a direct port of the Python PuLP-based solver.  The key difference
- * is that glpk.js uses a declarative problem format rather than PuLP's
- * incremental builder pattern.  We accumulate arrays of objective vars,
- * constraints, and binary variable names, then pass them all to glpk.solve().
+ * This is a direct port of the Python PuLP-based solver.  We accumulate
+ * objective coefficients, constraints, and binary variable names in an
+ * intermediate representation, then convert them to the format expected
+ * by javascript-lp-solver's Solve() function.
  */
 
-import GLPKFactory from "glpk.js";
-import type { GLPK } from "glpk.js";
+import solver, { type Model } from "javascript-lp-solver";
 import type { RecipeCategory } from "../types";
 import type { RecipeInput, SolvedPlan } from "./types";
 import {
@@ -21,6 +20,17 @@ import {
   PROTEIN_KEYWORDS,
   BASE_MAX_DEV,
 } from "./constants";
+
+// ---------------------------------------------------------------------------
+// Bound-type constants (replacing GLPK constants)
+// ---------------------------------------------------------------------------
+
+/** Equality: sum == lb (lb and ub are the same). */
+const BND_FX = 1;
+/** Upper bound: sum <= ub. */
+const BND_UP = 2;
+/** Lower bound: sum >= lb. */
+const BND_LO = 3;
 
 // ---------------------------------------------------------------------------
 // Helper types for building the LP problem
@@ -59,21 +69,66 @@ export function getProteinTypes(recipe: RecipeInput): Set<string> {
 }
 
 // ---------------------------------------------------------------------------
+// Convert intermediate representation to javascript-lp-solver model format
+// ---------------------------------------------------------------------------
+
+function buildSolverModel(
+  objVars: ObjVar[],
+  constraints: Constraint[],
+  binaries: string[],
+  planIdx: number,
+): Model {
+  const model: Model = {
+    optimize: "obj",
+    opType: "min",
+    constraints: {},
+    variables: {},
+    binaries: {},
+  };
+
+  // Ensure every binary variable has an entry
+  for (const varName of binaries) {
+    model.binaries![varName] = 1;
+    if (!model.variables[varName]) model.variables[varName] = {};
+  }
+
+  // Add objective coefficients to variables
+  for (const { name, coef } of objVars) {
+    if (!model.variables[name]) model.variables[name] = {};
+    model.variables[name]["obj"] =
+      (model.variables[name]["obj"] || 0) + coef;
+  }
+
+  // Add constraints and their variable coefficients
+  for (const constraint of constraints) {
+    const { name: cName, vars: cVars, bnds } = constraint;
+
+    // Set constraint bounds based on type
+    if (bnds.type === BND_FX) {
+      model.constraints[cName] = { equal: bnds.lb };
+    } else if (bnds.type === BND_UP) {
+      model.constraints[cName] = { max: bnds.ub };
+    } else if (bnds.type === BND_LO) {
+      model.constraints[cName] = { min: bnds.lb };
+    }
+
+    // Add each variable's coefficient for this constraint
+    for (const { name: vName, coef } of cVars) {
+      if (!model.variables[vName]) model.variables[vName] = {};
+      model.variables[vName][cName] =
+        (model.variables[vName][cName] || 0) + coef;
+    }
+  }
+
+  return model;
+}
+
+// ---------------------------------------------------------------------------
 // Solver
 // ---------------------------------------------------------------------------
 
-/** Singleton GLPK instance (initialised lazily). */
-let _glpk: GLPK | null = null;
-
-async function getGlpk(): Promise<GLPK> {
-  if (!_glpk) {
-    _glpk = await GLPKFactory();
-  }
-  return _glpk;
-}
-
 /**
- * Generates weekly meal plans using GLPK linear programming solver.
+ * Generates weekly meal plans using linear programming.
  *
  * Uses binary decision variables x[recipe_id][day][meal_slot] to assign
  * exactly one recipe per meal slot per day.  Macro targets are enforced with:
@@ -171,7 +226,7 @@ export class MealPlanSolver {
         planIdx > 0 ? new Set<string>(usedRecipeIds) : new Set<string>();
 
       // Tier 1: hard macro bounds + protein cap (if similar ingredients)
-      let plan = await this._solveSingle(
+      let plan = this._solveSingle(
         byCategory,
         targets,
         planIdx,
@@ -191,7 +246,7 @@ export class MealPlanSolver {
         console.info(
           `Plan ${planIdx + 1}: protein cap infeasible, retrying without cap`,
         );
-        plan = await this._solveSingle(
+        plan = this._solveSingle(
           byCategory,
           targets,
           planIdx,
@@ -212,7 +267,7 @@ export class MealPlanSolver {
         console.info(
           `Plan ${planIdx + 1}: hard bounds infeasible, retrying without`,
         );
-        plan = await this._solveSingle(
+        plan = this._solveSingle(
           byCategory,
           targets,
           planIdx,
@@ -250,7 +305,7 @@ export class MealPlanSolver {
   // Private: build and solve a single LP
   // -----------------------------------------------------------------------
 
-  private async _solveSingle(
+  private _solveSingle(
     byCategory: Record<string, RecipeInput[]>,
     targets: Record<string, number | undefined>,
     planIdx: number,
@@ -263,9 +318,7 @@ export class MealPlanSolver {
     maxDeviations: Record<string, number> | null,
     preferSimilarIngredients: boolean,
     maxProteinTypes: number | null,
-  ): Promise<SolvedPlan | null> {
-    const glpk = await getGlpk();
-
+  ): SolvedPlan | null {
     const numDays = days.length;
 
     // Build recipe lookup
@@ -283,9 +336,6 @@ export class MealPlanSolver {
 
     // -----------------------------------------------------------------
     // Decision variables: x[recipeId][day][slot]
-    //
-    // In glpk.js we don't create variable objects; we just use string
-    // names.  We track the variable names to add them to the binaries list.
     // -----------------------------------------------------------------
     type VarMap = Record<string, Record<number, Record<string, string>>>;
     const x: VarMap = {};
@@ -314,7 +364,7 @@ export class MealPlanSolver {
         constraints.push({
           name: `one_recipe_day${d}_${slot}`,
           vars,
-          bnds: { type: glpk.GLP_FX, lb: 1, ub: 1 },
+          bnds: { type: BND_FX, lb: 1, ub: 1 },
         });
       }
     }
@@ -335,7 +385,7 @@ export class MealPlanSolver {
         constraints.push({
           name: `freq_limit_${rId}`,
           vars: totalUses,
-          bnds: { type: glpk.GLP_UP, lb: 0, ub: recipe.frequencyLimit },
+          bnds: { type: BND_UP, lb: 0, ub: recipe.frequencyLimit },
         });
       }
     }
@@ -367,7 +417,7 @@ export class MealPlanSolver {
                 { name: x[r.id][d][slot], coef: 1 },
                 { name: x[r.id][firstDay][slot], coef: -1 },
               ],
-              bnds: { type: glpk.GLP_FX, lb: 0, ub: 0 },
+              bnds: { type: BND_FX, lb: 0, ub: 0 },
             });
           }
         }
@@ -400,7 +450,6 @@ export class MealPlanSolver {
 
         for (const d of days) {
           // x[rId][d]["lunch"] <= slot_choice
-          // i.e. x[rId][d]["lunch"] - slot_choice <= 0
           if (x[rId][d] && "lunch" in x[rId][d]) {
             constraints.push({
               name: `slot_consist_lunch_${rId}_d${d}`,
@@ -408,11 +457,10 @@ export class MealPlanSolver {
                 { name: x[rId][d]["lunch"], coef: 1 },
                 { name: choiceVar, coef: -1 },
               ],
-              bnds: { type: glpk.GLP_UP, lb: 0, ub: 0 },
+              bnds: { type: BND_UP, lb: 0, ub: 0 },
             });
           }
-          // x[rId][d]["dinner"] <= 1 - slot_choice
-          // i.e. x[rId][d]["dinner"] + slot_choice <= 1
+          // x[rId][d]["dinner"] + slot_choice <= 1
           if (x[rId][d] && "dinner" in x[rId][d]) {
             constraints.push({
               name: `slot_consist_dinner_${rId}_d${d}`,
@@ -420,7 +468,7 @@ export class MealPlanSolver {
                 { name: x[rId][d]["dinner"], coef: 1 },
                 { name: choiceVar, coef: 1 },
               ],
-              bnds: { type: glpk.GLP_UP, lb: 0, ub: 1 },
+              bnds: { type: BND_UP, lb: 0, ub: 1 },
             });
           }
         }
@@ -446,7 +494,6 @@ export class MealPlanSolver {
     }
 
     // Rating preference: slightly penalise lower-rated recipes.
-    // Unrated recipes are treated as 5-star to encourage diversity.
     for (const [rId, recipe] of Object.entries(recipeLookup)) {
       const rating = recipe.rating !== null ? recipe.rating : 5.0;
       const penalty = (RATING_WEIGHT * (5.0 - rating)) / 5.0;
@@ -474,7 +521,6 @@ export class MealPlanSolver {
       }
 
       if (allProteins.size > 0) {
-        // Binary indicator: use_prot_<protein>_<planIdx>
         const useProtein: Record<string, string> = {};
         for (const p of allProteins) {
           const varName = `use_prot_${p}_${planIdx}`;
@@ -482,8 +528,6 @@ export class MealPlanSolver {
           proteinBinaries.push(varName);
         }
 
-        // Indicator constraints: if any recipe with protein p is
-        // selected in any slot, useProtein[p] must be 1.
         for (const [rId, proteins] of Object.entries(recipeProteins)) {
           if (proteins.size === 0 || !x[rId]) continue;
           for (const p of proteins) {
@@ -491,14 +535,13 @@ export class MealPlanSolver {
               if (!x[rId][d]) continue;
               for (const slotKey of Object.keys(x[rId][d])) {
                 // useProtein[p] >= x[rId][d][slotKey]
-                // i.e. useProtein[p] - x[rId][d][slotKey] >= 0
                 constraints.push({
                   name: `prot_ind_${p}_${rId}_d${d}_${slotKey}`,
                   vars: [
                     { name: useProtein[p], coef: 1 },
                     { name: x[rId][d][slotKey], coef: -1 },
                   ],
-                  bnds: { type: glpk.GLP_LO, lb: 0, ub: 0 },
+                  bnds: { type: BND_LO, lb: 0, ub: 0 },
                 });
               }
             }
@@ -522,7 +565,7 @@ export class MealPlanSolver {
           constraints.push({
             name: `max_protein_types_${planIdx}`,
             vars: protVars,
-            bnds: { type: glpk.GLP_UP, lb: 0, ub: maxProteinTypes },
+            bnds: { type: BND_UP, lb: 0, ub: maxProteinTypes },
           });
         }
       }
@@ -534,9 +577,6 @@ export class MealPlanSolver {
     // Per-day macro constraints and objective
     // -----------------------------------------------------------------
 
-    // Track continuous (slack/deviation) variable names for lower-bound
-    // constraints. glpk.js doesn't have an explicit lowBound=0 on vars;
-    // we must add individual >= 0 constraints.
     const continuousLbVars: string[] = [];
 
     const macroFieldMap: Record<string, keyof RecipeInput> = {
@@ -548,7 +588,6 @@ export class MealPlanSolver {
     };
 
     for (const d of days) {
-      // Build daily expression coefficients per macro
       const dailyTerms: Record<string, ObjVar[]> = {
         calories: [],
         protein: [],
@@ -583,7 +622,7 @@ export class MealPlanSolver {
             name: `${macroName}_hard_min_d${d}`,
             vars: [...dailyExprVars],
             bnds: {
-              type: glpk.GLP_LO,
+              type: BND_LO,
               lb: targetVal - maxDev,
               ub: 0,
             },
@@ -594,7 +633,7 @@ export class MealPlanSolver {
             name: `${macroName}_hard_max_d${d}`,
             vars: [...dailyExprVars],
             bnds: {
-              type: glpk.GLP_UP,
+              type: BND_UP,
               lb: 0,
               ub: targetVal + maxDev,
             },
@@ -608,27 +647,24 @@ export class MealPlanSolver {
           continuousLbVars.push(capSlackName);
 
           if (cap === "le") {
-            // daily_expr <= target + cap_slack
-            // => daily_expr - cap_slack <= target
+            // daily_expr - cap_slack <= target
             constraints.push({
               name: `${macroName}_cap_d${d}`,
               vars: [
                 ...dailyExprVars,
                 { name: capSlackName, coef: -1 },
               ],
-              bnds: { type: glpk.GLP_UP, lb: 0, ub: targetVal },
+              bnds: { type: BND_UP, lb: 0, ub: targetVal },
             });
           } else {
-            // cap === "ge"
-            // daily_expr >= target - cap_slack
-            // => daily_expr + cap_slack >= target
+            // daily_expr + cap_slack >= target
             constraints.push({
               name: `${macroName}_cap_d${d}`,
               vars: [
                 ...dailyExprVars,
                 { name: capSlackName, coef: 1 },
               ],
-              bnds: { type: glpk.GLP_LO, lb: targetVal, ub: 0 },
+              bnds: { type: BND_LO, lb: targetVal, ub: 0 },
             });
           }
 
@@ -645,8 +681,7 @@ export class MealPlanSolver {
         continuousLbVars.push(devPlusName);
         continuousLbVars.push(devMinusName);
 
-        // daily_expr - target == dev_plus - dev_minus
-        // => daily_expr - dev_plus + dev_minus == target
+        // daily_expr - dev_plus + dev_minus == target
         constraints.push({
           name: `dev_${macroName}_d${d}`,
           vars: [
@@ -654,7 +689,7 @@ export class MealPlanSolver {
             { name: devPlusName, coef: -1 },
             { name: devMinusName, coef: 1 },
           ],
-          bnds: { type: glpk.GLP_FX, lb: targetVal, ub: targetVal },
+          bnds: { type: BND_FX, lb: targetVal, ub: targetVal },
         });
 
         // Objective: weight * (dev_plus + dev_minus) / target
@@ -671,7 +706,7 @@ export class MealPlanSolver {
       constraints.push({
         name: `lb_${varName}`,
         vars: [{ name: varName, coef: 1 }],
-        bnds: { type: glpk.GLP_LO, lb: 0, ub: 0 },
+        bnds: { type: BND_LO, lb: 0, ub: 0 },
       });
     }
 
@@ -679,47 +714,31 @@ export class MealPlanSolver {
     // Ensure objective has at least one term
     // -----------------------------------------------------------------
     if (objVars.length === 0) {
-      // Add a dummy zero-cost term (use first binary var if available)
       if (binaries.length > 0) {
         objVars.push({ name: binaries[0], coef: 0 });
       }
     }
 
     // -----------------------------------------------------------------
-    // Solve
+    // Convert to javascript-lp-solver format and solve
     // -----------------------------------------------------------------
-    let result;
+    let result: Record<string, number | boolean | undefined>;
     try {
-      result = await glpk.solve(
-        {
-          name: `MealPlan_${planIdx}`,
-          objective: {
-            direction: glpk.GLP_MIN,
-            name: "obj",
-            vars: objVars,
-          },
-          subjectTo: constraints,
-          binaries,
-        },
-        {
-          msglev: glpk.GLP_MSG_OFF,
-          tmlim: 10,
-        },
-      );
+      const model = buildSolverModel(objVars, constraints, binaries, planIdx);
+      result = solver.Solve(model) as Record<string, number | boolean | undefined>;
     } catch (e) {
       console.warn(`Solver error for plan ${planIdx}:`, e);
       return null;
     }
 
-    if (result.result.status !== glpk.GLP_OPT) {
-      console.warn(`Solver status: ${result.result.status}`);
+    if (!result.feasible) {
+      console.warn(`Solver infeasible for plan ${planIdx}`);
       return null;
     }
 
     // -----------------------------------------------------------------
     // Extract solution
     // -----------------------------------------------------------------
-    const vars = result.result.vars;
     const planData: Record<string, Record<string, string | null>> = {};
 
     for (const d of days) {
@@ -729,8 +748,8 @@ export class MealPlanSolver {
         planData[dayKey][slot] = null;
         for (const r of byCategory[slot]) {
           const varName = x[r.id][d][slot];
-          const rawVal = vars[varName];
-          if (rawVal !== undefined && Math.round(rawVal) === 1) {
+          const rawVal = result[varName];
+          if (typeof rawVal === "number" && Math.round(rawVal) === 1) {
             planData[dayKey][slot] = r.id;
           }
         }

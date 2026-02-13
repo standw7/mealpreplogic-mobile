@@ -20,7 +20,7 @@
     "expo-sqlite": "~16.0.10",
     "expo-status-bar": "~3.0.9",
     "expo-web-browser": "~15.0.10",
-    "glpk.js": "^5.0.0",
+    "javascript-lp-solver": "^1.0.3",
     "lucide-react-native": "^0.563.0",
     "react": "19.1.0",
     "react-native": "0.81.5",
