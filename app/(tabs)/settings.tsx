@@ -6,6 +6,7 @@ import {
   Alert,
   StyleSheet,
   Linking,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
@@ -23,9 +24,11 @@ import {
 import { useDatabase } from "../../lib/db/provider";
 import { getSyncState, clearSyncState } from "../../lib/db/sync-state";
 import { getAllRecipes, getRecipeCount } from "../../lib/db/recipes";
-import type { SyncState } from "../../lib/types";
+import type { SyncState, SyncConflict } from "../../lib/types";
 import { Colors } from "../../constants/colors";
 import SettingsRow from "../../components/common/SettingsRow";
+import SyncConflictModal from "../../components/common/SyncConflictModal";
+import { performSync, resolveConflicts } from "../../lib/sync/sync";
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title.toUpperCase()}</Text>;
@@ -38,6 +41,8 @@ export default function SettingsScreen() {
   const [syncState, setSyncState] = useState<SyncState | null>(null);
   const [recipeCount, setRecipeCount] = useState(0);
   const [exporting, setExporting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
 
   const isLoggedIn = Boolean(syncState?.email);
 
@@ -78,10 +83,64 @@ export default function SettingsScreen() {
     ]);
   }, [db]);
 
-  const handleSyncNow = useCallback(() => {
-    // Placeholder for Task 21 - manual sync
-    Alert.alert("Sync", "Sync will be available in a future update.");
-  }, []);
+  const handleSyncNow = useCallback(async () => {
+    if (syncing) return;
+    setSyncing(true);
+
+    try {
+      const result = await performSync(db);
+
+      if (result.error) {
+        Alert.alert("Sync Error", result.error);
+      } else if (result.conflicts.length > 0) {
+        setConflicts(result.conflicts);
+        Alert.alert(
+          "Sync Completed with Conflicts",
+          `Pulled ${result.pulled} recipe${result.pulled !== 1 ? "s" : ""}, ` +
+            `pushed ${result.pushed} recipe${result.pushed !== 1 ? "s" : ""}.\n\n` +
+            `${result.conflicts.length} conflict${result.conflicts.length !== 1 ? "s" : ""} ` +
+            `need${result.conflicts.length === 1 ? "s" : ""} to be resolved.`,
+          [{ text: "Resolve Now", onPress: () => {} }]
+        );
+      } else {
+        Alert.alert(
+          "Sync Complete",
+          `Pulled ${result.pulled} recipe${result.pulled !== 1 ? "s" : ""}, ` +
+            `pushed ${result.pushed} recipe${result.pushed !== 1 ? "s" : ""}.`
+        );
+      }
+
+      // Refresh data after sync
+      await loadData();
+    } catch (error: any) {
+      Alert.alert("Sync Error", error.message || "An unexpected error occurred.");
+    } finally {
+      setSyncing(false);
+    }
+  }, [db, syncing, loadData]);
+
+  const handleResolveConflicts = useCallback(
+    async (resolutions: Array<{ type: string; id: string; keep: "local" | "server" }>) => {
+      if (!syncState?.serverToken) return;
+
+      try {
+        const mapped = resolutions.map((r) => {
+          const conflict = conflicts.find(
+            (c) => (c.localVersion as any).id === r.id
+          );
+          return { conflict: conflict!, keep: r.keep };
+        });
+
+        await resolveConflicts(db, syncState.serverToken, mapped);
+        setConflicts([]);
+        Alert.alert("Conflicts Resolved", "All conflicts have been resolved.");
+        await loadData();
+      } catch (error: any) {
+        Alert.alert("Error", error.message || "Failed to resolve conflicts.");
+      }
+    },
+    [db, syncState, conflicts, loadData]
+  );
 
   const handleConnectNotion = useCallback(() => {
     // Placeholder for Task 23 - Notion integration
@@ -211,11 +270,17 @@ export default function SettingsScreen() {
             icon={<RefreshCw size={20} color={Colors.textSecondary} />}
           />
           <SettingsRow
-            label="Sync Now"
+            label={syncing ? "Syncing..." : "Sync Now"}
             value={!isLoggedIn ? "Sign in to enable sync" : undefined}
-            icon={<RefreshCw size={20} color={Colors.primary} />}
-            onPress={isLoggedIn ? handleSyncNow : undefined}
-            disabled={!isLoggedIn}
+            icon={
+              syncing ? (
+                <ActivityIndicator size="small" color={Colors.primary} />
+              ) : (
+                <RefreshCw size={20} color={Colors.primary} />
+              )
+            }
+            onPress={isLoggedIn && !syncing ? handleSyncNow : undefined}
+            disabled={!isLoggedIn || syncing}
           />
         </View>
 
@@ -282,6 +347,12 @@ export default function SettingsScreen() {
 
         <View style={styles.footer} />
       </ScrollView>
+
+      <SyncConflictModal
+        conflicts={conflicts}
+        visible={conflicts.length > 0}
+        onResolve={handleResolveConflicts}
+      />
     </SafeAreaView>
   );
 }
