@@ -14,9 +14,11 @@ import {
   XCircle,
   Loader,
   Clock,
+  WifiOff,
 } from "lucide-react-native";
 import type { Recipe, RecipeCategory } from "../../lib/types";
 import { autoCategorize } from "../../lib/utils/categorizer";
+import { useIsOnline } from "../../lib/utils/network";
 import { Colors } from "../../constants/colors";
 
 const API_BASE = "https://macronotion-production.up.railway.app";
@@ -39,6 +41,7 @@ interface BulkUrlImportFormProps {
 export default function BulkUrlImportForm({
   onImported,
 }: BulkUrlImportFormProps) {
+  const isOnline = useIsOnline();
   const [text, setText] = useState("");
   const [results, setResults] = useState<UrlResult[]>([]);
   const [importing, setImporting] = useState(false);
@@ -187,6 +190,16 @@ export default function BulkUrlImportForm({
         </Text>
       </View>
 
+      {/* Offline banner */}
+      {!isOnline && (
+        <View style={styles.offlineBanner}>
+          <WifiOff size={16} color="#ffffff" />
+          <Text style={styles.offlineBannerText}>
+            Bulk import requires internet connection.
+          </Text>
+        </View>
+      )}
+
       {/* URL input */}
       <Text style={styles.label}>Recipe URLs</Text>
       <Text style={styles.hint}>Paste one URL per line, or a list of URLs</Text>
@@ -220,10 +233,10 @@ export default function BulkUrlImportForm({
         <TouchableOpacity
           style={[
             styles.importButton,
-            urlCount === 0 && styles.buttonDisabled,
+            (urlCount === 0 || !isOnline) && styles.buttonDisabled,
           ]}
           onPress={handleImportAll}
-          disabled={urlCount === 0}
+          disabled={urlCount === 0 || !isOnline}
           activeOpacity={0.8}
         >
           <Text style={styles.importButtonText}>
@@ -337,6 +350,21 @@ const styles = StyleSheet.create({
     marginTop: 6,
     lineHeight: 20,
     paddingHorizontal: 16,
+  },
+  offlineBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#d97706",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+    gap: 8,
+  },
+  offlineBannerText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "600",
+    flex: 1,
   },
   label: {
     fontSize: 14,

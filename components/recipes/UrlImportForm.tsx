@@ -9,9 +9,10 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
-import { Link, CheckCircle, AlertCircle } from "lucide-react-native";
+import { Link, CheckCircle, AlertCircle, WifiOff } from "lucide-react-native";
 import type { Recipe, RecipeCategory } from "../../lib/types";
 import { autoCategorize } from "../../lib/utils/categorizer";
+import { useIsOnline } from "../../lib/utils/network";
 import { Colors } from "../../constants/colors";
 
 const API_BASE = "https://macronotion-production.up.railway.app";
@@ -38,6 +39,7 @@ interface ScrapedRecipe {
 }
 
 export default function UrlImportForm({ onImported }: UrlImportFormProps) {
+  const isOnline = useIsOnline();
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -135,6 +137,16 @@ export default function UrlImportForm({ onImported }: UrlImportFormProps) {
         </Text>
       </View>
 
+      {/* Offline banner */}
+      {!isOnline && (
+        <View style={styles.offlineBanner}>
+          <WifiOff size={16} color="#ffffff" />
+          <Text style={styles.offlineBannerText}>
+            URL import requires internet connection.
+          </Text>
+        </View>
+      )}
+
       {/* URL input */}
       <Text style={styles.label}>Recipe URL</Text>
       <TextInput
@@ -156,10 +168,10 @@ export default function UrlImportForm({ onImported }: UrlImportFormProps) {
       <TouchableOpacity
         style={[
           styles.importButton,
-          (!url.trim() || loading) && styles.buttonDisabled,
+          (!url.trim() || loading || !isOnline) && styles.buttonDisabled,
         ]}
         onPress={handleImport}
-        disabled={!url.trim() || loading}
+        disabled={!url.trim() || loading || !isOnline}
         activeOpacity={0.8}
       >
         {loading ? (
@@ -286,6 +298,21 @@ const styles = StyleSheet.create({
     marginTop: 6,
     lineHeight: 20,
     paddingHorizontal: 16,
+  },
+  offlineBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#d97706",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+    gap: 8,
+  },
+  offlineBannerText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "600",
+    flex: 1,
   },
   label: {
     fontSize: 14,
