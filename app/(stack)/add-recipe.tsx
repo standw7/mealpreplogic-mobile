@@ -17,13 +17,15 @@ import { Colors } from "../../constants/colors";
 import ManualRecipeForm from "../../components/recipes/ManualRecipeForm";
 import UrlImportForm from "../../components/recipes/UrlImportForm";
 import BulkUrlImportForm from "../../components/recipes/BulkUrlImportForm";
+import NotionSyncForm from "../../components/recipes/NotionSyncForm";
 
-type Tab = "manual" | "url" | "bulk";
+type Tab = "manual" | "url" | "bulk" | "notion";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "manual", label: "Manual" },
   { key: "url", label: "URL" },
   { key: "bulk", label: "Bulk URL" },
+  { key: "notion", label: "Notion" },
 ];
 
 export default function AddRecipeScreen() {
@@ -109,6 +111,19 @@ export default function AddRecipeScreen() {
         {activeTab === "url" && <UrlImportForm onImported={saveRecipe} />}
         {activeTab === "bulk" && (
           <BulkUrlImportForm onImported={saveBulkRecipes} />
+        )}
+        {activeTab === "notion" && (
+          <NotionSyncForm
+            onSynced={(count) => {
+              if (count > 0) {
+                Alert.alert(
+                  "Notion Sync",
+                  `${count} recipe${count !== 1 ? "s" : ""} imported from Notion.`,
+                  [{ text: "OK", onPress: () => router.back() }]
+                );
+              }
+            }}
+          />
         )}
       </View>
     </SafeAreaView>

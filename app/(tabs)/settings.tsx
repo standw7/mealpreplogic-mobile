@@ -28,7 +28,15 @@ import type { SyncState, SyncConflict } from "../../lib/types";
 import { Colors } from "../../constants/colors";
 import SettingsRow from "../../components/common/SettingsRow";
 import SyncConflictModal from "../../components/common/SyncConflictModal";
+import OfflineBanner from "../../components/common/OfflineBanner";
+import { useIsOnline } from "../../lib/utils/network";
 import { performSync, resolveConflicts } from "../../lib/sync/sync";
+import {
+  connectNotion,
+  disconnectNotion,
+  getNotionDatabases,
+  selectNotionDatabase,
+} from "../../lib/sync/notion";
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title.toUpperCase()}</Text>;
@@ -37,12 +45,16 @@ function SectionHeader({ title }: { title: string }) {
 export default function SettingsScreen() {
   const db = useDatabase();
   const router = useRouter();
+  const isOnline = useIsOnline();
 
   const [syncState, setSyncState] = useState<SyncState | null>(null);
   const [recipeCount, setRecipeCount] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
+  const [connectingNotion, setConnectingNotion] = useState(false);
+  const [notionDatabases, setNotionDatabases] = useState<Array<{ id: string; title: string }>>([]);
+  const [loadingDatabases, setLoadingDatabases] = useState(false);
 
   const isLoggedIn = Boolean(syncState?.email);
 
@@ -142,10 +154,43 @@ export default function SettingsScreen() {
     [db, syncState, conflicts, loadData]
   );
 
-  const handleConnectNotion = useCallback(() => {
-    // Placeholder for Task 23 - Notion integration
-    Alert.alert("Notion", "Notion integration will be available in a future update.");
-  }, []);
+  const handleLoadDatabases = useCallback(async () => {
+    if (!syncState?.serverToken) return;
+    setLoadingDatabases(true);
+    try {
+      const dbs = await getNotionDatabases(syncState.serverToken);
+      setNotionDatabases(dbs);
+    } catch (error) {
+      console.error("Failed to load Notion databases:", error);
+    } finally {
+      setLoadingDatabases(false);
+    }
+  }, [syncState?.serverToken]);
+
+  const handleConnectNotion = useCallback(async () => {
+    if (!isLoggedIn) {
+      Alert.alert("Sign In Required", "Please sign in before connecting Notion.");
+      return;
+    }
+    if (connectingNotion) return;
+    setConnectingNotion(true);
+
+    try {
+      const success = await connectNotion(db);
+      if (success) {
+        Alert.alert("Success", "Notion workspace connected.");
+        await loadData();
+        // Load databases for selection
+        await handleLoadDatabases();
+      } else {
+        Alert.alert("Cancelled", "Notion connection was cancelled.");
+      }
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "Failed to connect Notion.");
+    } finally {
+      setConnectingNotion(false);
+    }
+  }, [db, isLoggedIn, connectingNotion, loadData, handleLoadDatabases]);
 
   const handleDisconnectNotion = useCallback(async () => {
     Alert.alert(
@@ -158,12 +203,8 @@ export default function SettingsScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              const { saveSyncState } = await import("../../lib/db/sync-state");
-              await saveSyncState(db, {
-                notionAccessToken: null,
-                notionWorkspaceId: null,
-                notionDatabaseId: null,
-              });
+              await disconnectNotion(db);
+              setNotionDatabases([]);
               await loadData();
             } catch (error) {
               console.error("Failed to disconnect Notion:", error);
@@ -173,6 +214,20 @@ export default function SettingsScreen() {
       ]
     );
   }, [db, loadData]);
+
+  const handleSelectDatabase = useCallback(
+    async (databaseId: string) => {
+      try {
+        await selectNotionDatabase(db, databaseId);
+        setNotionDatabases([]);
+        await loadData();
+        Alert.alert("Success", "Notion database selected.");
+      } catch (error: any) {
+        Alert.alert("Error", error.message || "Failed to select database.");
+      }
+    },
+    [db, loadData]
+  );
 
   const handleExportRecipes = useCallback(async () => {
     if (exporting) return;
@@ -232,6 +287,7 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["bottom"]}>
+      <OfflineBanner />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -271,7 +327,13 @@ export default function SettingsScreen() {
           />
           <SettingsRow
             label={syncing ? "Syncing..." : "Sync Now"}
-            value={!isLoggedIn ? "Sign in to enable sync" : undefined}
+            value={
+              !isOnline
+                ? "Offline"
+                : !isLoggedIn
+                  ? "Sign in to enable sync"
+                  : undefined
+            }
             icon={
               syncing ? (
                 <ActivityIndicator size="small" color={Colors.primary} />
@@ -279,8 +341,8 @@ export default function SettingsScreen() {
                 <RefreshCw size={20} color={Colors.primary} />
               )
             }
-            onPress={isLoggedIn && !syncing ? handleSyncNow : undefined}
-            disabled={!isLoggedIn || syncing}
+            onPress={isLoggedIn && !syncing && isOnline ? handleSyncNow : undefined}
+            disabled={!isLoggedIn || syncing || !isOnline}
           />
         </View>
 
@@ -294,6 +356,37 @@ export default function SettingsScreen() {
                 value={syncState?.notionWorkspaceId ?? "Workspace"}
                 icon={<Link size={20} color={Colors.success} />}
               />
+              {syncState?.notionDatabaseId ? (
+                <SettingsRow
+                  label="Database Selected"
+                  value={syncState.notionDatabaseId.slice(0, 8) + "..."}
+                  icon={<Database size={20} color={Colors.success} />}
+                  onPress={handleLoadDatabases}
+                />
+              ) : (
+                <SettingsRow
+                  label={loadingDatabases ? "Loading databases..." : "Select Database"}
+                  icon={
+                    loadingDatabases ? (
+                      <ActivityIndicator size="small" color={Colors.primary} />
+                    ) : (
+                      <Database size={20} color={Colors.warning} />
+                    )
+                  }
+                  onPress={!loadingDatabases ? handleLoadDatabases : undefined}
+                  disabled={loadingDatabases}
+                />
+              )}
+              {notionDatabases.length > 0 &&
+                notionDatabases.map((dbItem) => (
+                  <SettingsRow
+                    key={dbItem.id}
+                    label={dbItem.title || "Untitled"}
+                    value={dbItem.id === syncState?.notionDatabaseId ? "Selected" : undefined}
+                    icon={<Database size={20} color={Colors.textSecondary} />}
+                    onPress={() => handleSelectDatabase(dbItem.id)}
+                  />
+                ))}
               <SettingsRow
                 label="Disconnect Notion"
                 icon={<Link size={20} color={Colors.error} />}
@@ -302,9 +395,23 @@ export default function SettingsScreen() {
             </>
           ) : (
             <SettingsRow
-              label="Connect Notion"
-              icon={<Link size={20} color={Colors.primary} />}
-              onPress={handleConnectNotion}
+              label={connectingNotion ? "Connecting..." : "Connect Notion"}
+              value={
+                !isOnline
+                  ? "Offline"
+                  : !isLoggedIn
+                    ? "Sign in first"
+                    : undefined
+              }
+              icon={
+                connectingNotion ? (
+                  <ActivityIndicator size="small" color={Colors.primary} />
+                ) : (
+                  <Link size={20} color={Colors.primary} />
+                )
+              }
+              onPress={isOnline && isLoggedIn && !connectingNotion ? handleConnectNotion : undefined}
+              disabled={!isOnline || !isLoggedIn || connectingNotion}
             />
           )}
         </View>
