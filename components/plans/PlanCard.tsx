@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from "react-native";
 
 import type { DayPlan } from "../../lib/types";
 import { Colors } from "../../constants/colors";
+
 import MealSlotCard from "./MealSlotCard";
 
 interface PlanCardProps {
@@ -33,9 +34,8 @@ export default function PlanCard({
 
       {/* Daily totals */}
       <View style={styles.totalsRow}>
-        <View style={styles.totalItem}>
-          <Text style={styles.totalValue}>{dayPlan.totalCalories}</Text>
-          <Text style={styles.totalLabel}>cal</Text>
+        <View style={styles.calBadge}>
+          <Text style={styles.calBadgeText}>{dayPlan.totalCalories} cal</Text>
         </View>
         <View style={styles.totalItem}>
           <Text style={styles.totalValue}>{dayPlan.totalProtein}g</Text>
@@ -74,17 +74,29 @@ const styles = StyleSheet.create({
   },
   totalsRow: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-around",
     paddingTop: 10,
     marginTop: 6,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
   },
+  calBadge: {
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  calBadgeText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Colors.primary,
+  },
   totalItem: {
     alignItems: "center",
   },
   totalValue: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "700",
     color: Colors.text,
   },

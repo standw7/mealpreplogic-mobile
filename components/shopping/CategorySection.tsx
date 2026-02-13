@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: Colors.card,
+    backgroundColor: Colors.backgroundAlt,
   },
   headerLeft: {
     flexDirection: "row",

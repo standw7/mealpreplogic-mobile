@@ -10,7 +10,7 @@ import {
 import { RefreshCw } from "lucide-react-native";
 
 import type { MealAssignment } from "../../lib/types";
-import { Colors } from "../../constants/colors";
+import { Colors, CategoryColors } from "../../constants/colors";
 
 const SLOT_LABELS: Record<string, string> = {
   breakfast: "Breakfast",
@@ -32,6 +32,11 @@ export default function MealSlotCard({
   rerolling,
 }: MealSlotCardProps) {
   const { slot, recipe } = assignment;
+  const cat = CategoryColors[slot] ?? {
+    main: Colors.primary,
+    bg: Colors.primaryLight,
+    text: Colors.primaryHover,
+  };
 
   return (
     <View style={styles.card}>
@@ -39,8 +44,8 @@ export default function MealSlotCard({
       {recipe.imageUrl ? (
         <Image source={{ uri: recipe.imageUrl }} style={styles.image} />
       ) : (
-        <View style={styles.imagePlaceholder}>
-          <Text style={styles.slotInitial}>
+        <View style={[styles.imagePlaceholder, { backgroundColor: cat.bg }]}>
+          <Text style={[styles.slotInitial, { color: cat.main }]}>
             {(SLOT_LABELS[slot] || slot).charAt(0).toUpperCase()}
           </Text>
         </View>

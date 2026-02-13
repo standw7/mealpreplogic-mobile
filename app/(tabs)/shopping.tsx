@@ -431,7 +431,7 @@ const styles = StyleSheet.create({
   progressBarFill: {
     height: 4,
     borderRadius: 2,
-    backgroundColor: Colors.success,
+    backgroundColor: Colors.primary,
   },
   actionBar: {
     flexDirection: "row",

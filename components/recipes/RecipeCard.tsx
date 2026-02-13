@@ -1,15 +1,8 @@
 import React from "react";
 import { View, Text, TouchableOpacity, Image, StyleSheet } from "react-native";
-import type { Recipe, RecipeCategory } from "../../lib/types";
-import { Colors } from "../../constants/colors";
-
-const CATEGORY_COLORS: Record<RecipeCategory, string> = {
-  breakfast: "#f59e0b",
-  lunch: "#10b981",
-  dinner: "#ef4444",
-  snack: "#8b5cf6",
-  dessert: "#ec4899",
-};
+import { BookOpen } from "lucide-react-native";
+import type { Recipe } from "../../lib/types";
+import { Colors, CategoryColors } from "../../constants/colors";
 
 interface RecipeCardProps {
   recipe: Recipe;
@@ -17,7 +10,11 @@ interface RecipeCardProps {
 }
 
 export default function RecipeCard({ recipe, onPress }: RecipeCardProps) {
-  const badgeColor = CATEGORY_COLORS[recipe.category] ?? Colors.primary;
+  const cat = CategoryColors[recipe.category] ?? {
+    main: Colors.primary,
+    bg: Colors.primaryLight,
+    text: Colors.primaryHover,
+  };
 
   return (
     <TouchableOpacity
@@ -28,18 +25,8 @@ export default function RecipeCard({ recipe, onPress }: RecipeCardProps) {
       {recipe.imageUrl ? (
         <Image source={{ uri: recipe.imageUrl }} style={styles.image} />
       ) : (
-        <View style={[styles.imagePlaceholder, { backgroundColor: badgeColor + "20" }]}>
-          <Text style={[styles.placeholderEmoji]}>
-            {recipe.category === "breakfast"
-              ? "🥞"
-              : recipe.category === "lunch"
-              ? "🥗"
-              : recipe.category === "dinner"
-              ? "🍽"
-              : recipe.category === "snack"
-              ? "🍎"
-              : "🍰"}
-          </Text>
+        <View style={[styles.imagePlaceholder, { backgroundColor: cat.bg }]}>
+          <BookOpen size={28} color={cat.main} strokeWidth={1.5} />
         </View>
       )}
 
@@ -49,19 +36,71 @@ export default function RecipeCard({ recipe, onPress }: RecipeCardProps) {
         </Text>
 
         <View style={styles.row}>
-          <View style={[styles.badge, { backgroundColor: badgeColor + "20" }]}>
-            <Text style={[styles.badgeText, { color: badgeColor }]}>
+          <View style={[styles.badge, { backgroundColor: cat.bg }]}>
+            <Text style={[styles.badgeText, { color: cat.text }]}>
               {recipe.category.charAt(0).toUpperCase() + recipe.category.slice(1)}
             </Text>
           </View>
-          <Text style={styles.calories}>{recipe.calories} cal</Text>
+          <Text style={styles.calories}>
+            <Text style={styles.caloriesValue}>{recipe.calories}</Text> kcal
+          </Text>
         </View>
 
-        <Text style={styles.macros}>
-          P {recipe.protein}g {"  "}F {recipe.fat}g {"  "}C {recipe.carbs}g
-        </Text>
+        {/* Macro bar visual */}
+        <View style={styles.macroBarContainer}>
+          <MacroBar
+            protein={recipe.protein}
+            fat={recipe.fat}
+            carbs={recipe.carbs}
+          />
+          <View style={styles.macroLegend}>
+            <Text style={[styles.macroText, { color: "#60a5fa" }]}>
+              P {recipe.protein}g
+            </Text>
+            <Text style={[styles.macroText, { color: "#fbbf24" }]}>
+              F {recipe.fat}g
+            </Text>
+            <Text style={[styles.macroText, { color: "#2dd4bf" }]}>
+              C {recipe.carbs}g
+            </Text>
+          </View>
+        </View>
       </View>
     </TouchableOpacity>
+  );
+}
+
+function MacroBar({
+  protein,
+  fat,
+  carbs,
+}: {
+  protein: number;
+  fat: number;
+  carbs: number;
+}) {
+  const total = protein + fat + carbs;
+  if (total === 0) return null;
+
+  const pPct = (protein / total) * 100;
+  const fPct = (fat / total) * 100;
+  const cPct = (carbs / total) * 100;
+
+  return (
+    <View style={styles.macroBar}>
+      <View
+        style={[styles.macroSegment, { width: `${pPct}%`, backgroundColor: "#60a5fa" }]}
+      />
+      <View
+        style={[styles.macroSegment, { width: `${fPct}%`, backgroundColor: "#fbbf24" }]}
+      />
+      <View
+        style={[
+          styles.macroSegment,
+          { width: `${cPct}%`, backgroundColor: "#2dd4bf", borderTopRightRadius: 3, borderBottomRightRadius: 3 },
+        ]}
+      />
+    </View>
   );
 }
 
@@ -69,30 +108,29 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: "row",
     backgroundColor: "#ffffff",
-    borderRadius: 12,
+    borderRadius: 16,
     marginBottom: 12,
     marginHorizontal: 16,
     padding: 12,
+    borderWidth: 1,
+    borderColor: Colors.border + "99",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
     elevation: 2,
   },
   image: {
     width: 80,
     height: 80,
-    borderRadius: 10,
+    borderRadius: 12,
   },
   imagePlaceholder: {
     width: 80,
     height: 80,
-    borderRadius: 10,
+    borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
-  },
-  placeholderEmoji: {
-    fontSize: 32,
   },
   content: {
     flex: 1,
@@ -108,25 +146,46 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 4,
+    marginBottom: 6,
   },
   badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
     marginRight: 8,
   },
   badgeText: {
-    fontSize: 11,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "600",
   },
   calories: {
     fontSize: 13,
     color: Colors.textSecondary,
-    fontWeight: "600",
+    fontWeight: "500",
   },
-  macros: {
-    fontSize: 12,
-    color: Colors.textSecondary,
+  caloriesValue: {
+    color: Colors.primary,
+    fontWeight: "700",
+  },
+  macroBarContainer: {
+    gap: 4,
+  },
+  macroBar: {
+    flexDirection: "row",
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#f3f4f6",
+    overflow: "hidden",
+  },
+  macroSegment: {
+    height: 5,
+  },
+  macroLegend: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  macroText: {
+    fontSize: 11,
+    fontWeight: "600",
   },
 });
